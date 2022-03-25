@@ -9,6 +9,8 @@
 #include "Navigation/PathFollowingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
+rxcpp::schedulers::run_loop RunLoop;
+
 ARxSamplePlayerController::ARxSamplePlayerController()
 {
 	bShowMouseCursor = true;
@@ -21,13 +23,23 @@ void ARxSamplePlayerController::BeginPlay()
 
 	GetCharacter()->GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 
-	SubscribeMovingLog();
-	SubscribeRunCommand();
+	SubscribeMoveLog();
+	SubscribeMoveCommand();
+	SubscribeCameraCommand();
 }
 
-void ARxSamplePlayerController::SubscribeMovingLog()
+void ARxSamplePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	Moving.get_observable()
+	//Moving
+	//Clicked;
+	//Tick;
+}
+
+void ARxSamplePlayerController::SubscribeMoveLog()
+{
+	auto MovingStream = Moving.get_observable();
+
+	MovingStream
 		.filter([](bool b) { return b == true; })
 		.first()
 		.subscribe(
@@ -43,7 +55,7 @@ void ARxSamplePlayerController::SubscribeMovingLog()
 			}
 			);
 
-	Moving.get_observable()
+	MovingStream
 		.filter([](bool b) { return b == true; })
 		.subscribe(
 			[](bool b)
@@ -53,7 +65,7 @@ void ARxSamplePlayerController::SubscribeMovingLog()
 			}
 	);
 
-	Moving.get_observable()
+	MovingStream
 		.filter([](bool b) { return b == false; })
 		.subscribe(
 			[](bool b)
@@ -64,57 +76,76 @@ void ARxSamplePlayerController::SubscribeMovingLog()
 	);
 }
 
-void ARxSamplePlayerController::SubscribeRunCommand()
+void ARxSamplePlayerController::SubscribeMoveCommand()
 {
-	// 다른 Rx 구현제와는 달리 RxCpp에는 Buffer_Toggle(Buffer의 closingSelector 버전)이 구현되어 있지 않다.
-	// 따라서 대신 window_toggle 을 이용하여 우회로 구현하였다.
-	// 여러모로 적절한 구현은 아니지만 예제 차원에서 일단 남겨둔다.
-	auto period = std::chrono::milliseconds(200);
+	// 다른 Rx 구현체와는 달리 RxCpp에는 Throttle, Buffer_Toggle(Buffer의 closingSelector 버전)이 구현되어 있지 않다.
+	// 따라서 대신 throttle 은 외부 코드 반영, buffer_toggle은 window_toggle 로 대체하여 우회로 구현하였다.
+	// 여러모로 적절한 구현은 아니지만 향후 구현이 필요한 operator 참고 및 예제 차원에서 일단 남겨둔다.
+	auto DoubleClickPeriod = std::chrono::milliseconds(200);
 
-	auto ClickStream = Clicked.get_observable()
-		.filter([this](bool b) { return b == true; });
-	auto FlushStream = ClickStream.debounce(period, rxcpp::observe_on_event_loop());
+	auto MainThread = rxcpp::observe_on_run_loop(RunLoop);
+	//auto WorkThread = rxcpp::synchronize_new_thread();
+
+	auto ClickStream = Tick.get_observable()
+		.map([this](float DeltaTime) { return bMoveToMouseCursor; });
+
+	auto FlushStream = ClickStream
+		.filter([](uint32 bMove) { return bMove == 1; })
+		.throttle(DoubleClickPeriod);
+
 	auto WindowStream = ClickStream
+		.distinct_until_changed()
 		.window_toggle(
-			FlushStream.start_with(false),
-			[=](bool b) {
-				return FlushStream;
+			FlushStream,
+			[=](uint32 bMove) {
+				return FlushStream
+					.delay(DoubleClickPeriod);
 			}
 	);
-	auto CountStream = WindowStream
-		.map([](rxcpp::observable<bool> w) {
-				return w
-					.count()
-					.as_dynamic();
-			}
-		)
-		.merge()
-		.filter([](int count) { return count >= 2; });
 
-	CountStream
-		.subscribe(
-			[this](int ClickCount)
+	WindowStream
+		.observe_on(MainThread)
+		.subscribe([MainThread, this](rxcpp::observable<uint32> ClickWindow)
+		{
+			MoveToMouseCursor();
+
+			ClickWindow
+				.filter([](uint32 bMove) { return bMove == 1; })
+				.take(2)
+				.observe_on(MainThread)
+				.subscribe([this](uint32 bMove)
+					{
+						GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Yellow, FString::Printf(TEXT("Double clicked!")));
+
+						GetCharacter()->GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
+					});
+		});
+}
+
+void ARxSamplePlayerController::SubscribeCameraCommand()
+{
+	/*
+	auto TriggerStart = Clicked.get_observable()
+		.filter([](bool bDown) { return bDown == true; });
+	auto TriggerEnd = Clicked.get_observable()
+		.filter([](bool bDown) { return bDown == false; });
+	auto CameraMoveStream = Tick.get_observable()
+		.skip_until(TriggerStart)
+		.map([this](float DeltaTime) { return bMoveToMouseCursor; })
+		.take_until(TriggerEnd)
+		.repeat();
+	CameraMoveStream
+		.subscribe([]() 
 			{
-				const FString Msg("Double clicked!");
-				GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Yellow, FString::Printf(TEXT("Double clicked! ClickCount: %d"), ClickCount));
-
-				GetCharacter()->GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
-			}
-		);
-
-	//FString str(strlen(typeid(n).name()), typeid(n).name());
-	//UE_LOG(LogTemp, Log, TEXT("TYPE: %s"), *str);
+				//AddControllerYawInput();
+				//AddPitchInput(Val);
+			});
+	*/
 }
 
 void ARxSamplePlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
-
-	// keep updating the destination every tick while desired
-	if (bMoveToMouseCursor)
-	{
-		MoveToMouseCursor();
-	}
 
 	if (UPathFollowingComponent* PathFollowingComp = FindComponentByClass<UPathFollowingComponent>())
 	{
@@ -128,6 +159,15 @@ void ARxSamplePlayerController::PlayerTick(float DeltaTime)
 	}
 
 	Tick.get_subscriber().on_next(DeltaTime);
+
+	/*
+	while (lifetime.is_subscribed() || !RunLoop.empty()) {
+		while (!RunLoop.empty() && RunLoop.peek().when < RunLoop.now()) {
+			RunLoop.dispatch();
+		}
+	}*/
+	if (!RunLoop.empty() && RunLoop.peek().when < RunLoop.now())
+		RunLoop.dispatch();
 }
 
 void ARxSamplePlayerController::SetupInputComponent()
@@ -137,6 +177,8 @@ void ARxSamplePlayerController::SetupInputComponent()
 
 	InputComponent->BindAction("SetDestination", IE_Pressed, this, &ARxSamplePlayerController::OnSetDestinationPressed);
 	InputComponent->BindAction("SetDestination", IE_Released, this, &ARxSamplePlayerController::OnSetDestinationReleased);
+	InputComponent->BindAction("Jump", IE_Pressed, this, &ARxSamplePlayerController::Jump);
+	InputComponent->BindAction("Jump", IE_Released, this, &ARxSamplePlayerController::StopJumping);
 
 	// support touch devices 
 	InputComponent->BindTouch(EInputEvent::IE_Pressed, this, &ARxSamplePlayerController::MoveToTouchLocation);
@@ -217,4 +259,14 @@ void ARxSamplePlayerController::OnSetDestinationReleased()
 	// clear flag to indicate we should stop updating the destination
 	bMoveToMouseCursor = false;
 	Clicked.get_subscriber().on_next(false);
+}
+
+void ARxSamplePlayerController::Jump()
+{
+	GetCharacter()->Jump();
+}
+
+void ARxSamplePlayerController::StopJumping()
+{
+	GetCharacter()->StopJumping();
 }

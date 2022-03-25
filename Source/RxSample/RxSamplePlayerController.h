@@ -4,17 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
-
-#pragma push_macro("check")
-#undef check
-#pragma push_macro("ensure")
-#undef ensure
-
-#include "rxcpp/rx.hpp"
-
-#pragma pop_macro("check")
-#pragma pop_macro("ensure")
-
+#include "Rx.h"
 #include "RxSamplePlayerController.generated.h"
 
 UCLASS()
@@ -39,6 +29,7 @@ protected:
 
 	// Begin PlayerController interface
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void PlayerTick(float DeltaTime) override;
 	virtual void SetupInputComponent() override;
 	// End PlayerController interface
@@ -58,9 +49,12 @@ protected:
 	/** Input handlers for SetDestination action. */
 	void OnSetDestinationPressed();
 	void OnSetDestinationReleased();
+	void Jump();
+	void StopJumping();
 
-	void SubscribeMovingLog();
-	void SubscribeRunCommand();
+	void SubscribeMoveLog();
+	void SubscribeMoveCommand();
+	void SubscribeCameraCommand();
 };
 
 
