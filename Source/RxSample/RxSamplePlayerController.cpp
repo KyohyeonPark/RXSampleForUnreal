@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+Ôªø// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "RxSamplePlayerController.h"
 #include "Blueprint/AIBlueprintHelperLibrary.h"
@@ -78,9 +78,9 @@ void ARxSamplePlayerController::SubscribeMoveLog()
 
 void ARxSamplePlayerController::SubscribeMoveCommand()
 {
-	// ¥Ÿ∏• Rx ±∏«ˆ√ºøÕ¥¬ ¥ﬁ∏Æ RxCppø°¥¬ Throttle, Buffer_Toggle(Buffer¿« closingSelector πˆ¿¸)¿Ã ±∏«ˆµ«æÓ ¿÷¡ˆ æ ¥Ÿ.
-	// µ˚∂Ûº≠ ¥ÎΩ≈ throttle ¿∫ ø‹∫Œ ƒ⁄µÂ π›øµ, buffer_toggle¿∫ window_toggle ∑Œ ¥Î√º«œø© øÏ»∏∑Œ ±∏«ˆ«œø¥¥Ÿ.
-	// ø©∑Ø∏∑Œ ¿˚¿˝«— ±∏«ˆ¿∫ æ∆¥œ¡ˆ∏∏ «‚»ƒ ±∏«ˆ¿Ã « ø‰«— operator ¬¸∞Ì π◊ øπ¡¶ ¬˜ø¯ø°º≠ ¿œ¥‹ ≥≤∞‹µ–¥Ÿ.
+	// Îã§Î•∏ Rx Íµ¨ÌòÑÏ≤¥ÏôÄÎäî Îã¨Î¶¨ RxCppÏóêÎäî Throttle, Buffer_Toggle(BufferÏùò closingSelector Î≤ÑÏ†Ñ)Ïù¥ Íµ¨ÌòÑÎêòÏñ¥ ÏûàÏßÄ ÏïäÎã§.
+	// Îî∞ÎùºÏÑú ÎåÄÏã† throttle ÏùÄ Ïô∏Î∂Ä ÏΩîÎìú Î∞òÏòÅ, buffer_toggleÏùÄ window_toggle Î°ú ÎåÄÏ≤¥ÌïòÏó¨ Ïö∞ÌöåÎ°ú Íµ¨ÌòÑÌïòÏòÄÎã§.
+	// Ïó¨Îü¨Î™®Î°ú Ï†ÅÏ†àÌïú Íµ¨ÌòÑÏùÄ ÏïÑÎãàÏßÄÎßå Ìñ•ÌõÑ Íµ¨ÌòÑÏù¥ ÌïÑÏöîÌïú operator Ï∞∏Í≥† Î∞è ÏòàÏ†ú Ï∞®ÏõêÏóêÏÑú ÏùºÎã® ÎÇ®Í≤®ÎëîÎã§.
 	auto DoubleClickPeriod = std::chrono::milliseconds(200);
 
 	auto MainThread = rxcpp::observe_on_run_loop(RunLoop);
@@ -124,23 +124,32 @@ void ARxSamplePlayerController::SubscribeMoveCommand()
 
 void ARxSamplePlayerController::SubscribeCameraCommand()
 {
-	/*
-	auto TriggerStart = Clicked.get_observable()
-		.filter([](bool bDown) { return bDown == true; });
-	auto TriggerEnd = Clicked.get_observable()
-		.filter([](bool bDown) { return bDown == false; });
+	auto Stream = Tick.get_observable()
+		.map([this](float DeltaTime) { return bCameraMove; })
+		.distinct_until_changed();
+
+	auto TriggerStart = Stream
+		.filter([](uint32 bDown) { return bDown == 1; });
+	auto TriggerEnd = Stream
+		.filter([](uint32 bDown) { return bDown == 0; });
 	auto CameraMoveStream = Tick.get_observable()
 		.skip_until(TriggerStart)
-		.map([this](float DeltaTime) { return bMoveToMouseCursor; })
+		.map([this](float DeltaTime)
+			{
+				FVector2D Pos;
+				GetInputMouseDelta(Pos.X, Pos.Y);
+				return MoveTemp(Pos);
+			}
+		)
 		.take_until(TriggerEnd)
 		.repeat();
 	CameraMoveStream
-		.subscribe([]() 
+		.subscribe([this](const FVector2D& V)
 			{
-				//AddControllerYawInput();
-				//AddPitchInput(Val);
+				AddYawInput(V.X);
+				AddPitchInput(V.Y);
+				//GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Yellow, FString::Printf(TEXT("Camera")));
 			});
-	*/
 }
 
 void ARxSamplePlayerController::PlayerTick(float DeltaTime)
@@ -160,6 +169,7 @@ void ARxSamplePlayerController::PlayerTick(float DeltaTime)
 
 	Tick.get_subscriber().on_next(DeltaTime);
 
+	// GameInstance Ï™ΩÏúºÎ°ú ÏòÆÍ∏¥Îã§. Ï¢ÄÎçî Ï¢ãÏùÄ Í≥≥Ïù¥ ÏûàÎã§Î©¥ Í∑∏Í≥≥ÏúºÎ°ú...
 	/*
 	while (lifetime.is_subscribed() || !RunLoop.empty()) {
 		while (!RunLoop.empty() && RunLoop.peek().when < RunLoop.now()) {
@@ -177,8 +187,12 @@ void ARxSamplePlayerController::SetupInputComponent()
 
 	InputComponent->BindAction("SetDestination", IE_Pressed, this, &ARxSamplePlayerController::OnSetDestinationPressed);
 	InputComponent->BindAction("SetDestination", IE_Released, this, &ARxSamplePlayerController::OnSetDestinationReleased);
+	InputComponent->BindAction("MoveCamera", IE_Pressed, this, &ARxSamplePlayerController::OnCameraMovePressed);
+	InputComponent->BindAction("MoveCamera", IE_Released, this, &ARxSamplePlayerController::OnCameraMoveReleased);
 	InputComponent->BindAction("Jump", IE_Pressed, this, &ARxSamplePlayerController::Jump);
 	InputComponent->BindAction("Jump", IE_Released, this, &ARxSamplePlayerController::StopJumping);
+	InputComponent->BindAxis("Turn", this, &ThisClass::AddYawInput);
+	InputComponent->BindAxis("LookUp", this, &ThisClass::AddPitchInput);
 
 	// support touch devices 
 	InputComponent->BindTouch(EInputEvent::IE_Pressed, this, &ARxSamplePlayerController::MoveToTouchLocation);
@@ -259,6 +273,16 @@ void ARxSamplePlayerController::OnSetDestinationReleased()
 	// clear flag to indicate we should stop updating the destination
 	bMoveToMouseCursor = false;
 	Clicked.get_subscriber().on_next(false);
+}
+
+void ARxSamplePlayerController::OnCameraMovePressed()
+{
+	bCameraMove = true;
+}
+
+void ARxSamplePlayerController::OnCameraMoveReleased()
+{
+	bCameraMove = false;
 }
 
 void ARxSamplePlayerController::Jump()

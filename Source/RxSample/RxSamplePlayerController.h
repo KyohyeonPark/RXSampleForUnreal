@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -26,6 +26,7 @@ protected:
 
 	/** True if the controlled character should navigate to the mouse cursor. */
 	uint32 bMoveToMouseCursor : 1;
+	uint32 bCameraMove : 1;
 
 	// Begin PlayerController interface
 	virtual void BeginPlay() override;
@@ -49,6 +50,8 @@ protected:
 	/** Input handlers for SetDestination action. */
 	void OnSetDestinationPressed();
 	void OnSetDestinationReleased();
+	void OnCameraMovePressed();
+	void OnCameraMoveReleased();
 	void Jump();
 	void StopJumping();
 
