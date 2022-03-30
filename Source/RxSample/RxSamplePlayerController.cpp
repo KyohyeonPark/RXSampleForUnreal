@@ -1,13 +1,12 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
-
-#include "RxSamplePlayerController.h"
+﻿#include "RxSamplePlayerController.h"
 #include "Blueprint/AIBlueprintHelperLibrary.h"
 #include "Runtime/Engine/Classes/Components/DecalComponent.h"
 #include "HeadMountedDisplayFunctionLibrary.h"
 #include "RxSampleCharacter.h"
-#include "Engine/World.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/SpringArmComponent.h"
+
 
 rxcpp::schedulers::run_loop RunLoop;
 
@@ -23,6 +22,8 @@ void ARxSamplePlayerController::BeginPlay()
 
 	GetCharacter()->GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 
+	AddPitchInput(15.f);
+
 	SubscribeMoveLog();
 	SubscribeMoveCommand();
 	SubscribeCameraCommand();
@@ -30,9 +31,6 @@ void ARxSamplePlayerController::BeginPlay()
 
 void ARxSamplePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	//Moving
-	//Clicked;
-	//Tick;
 }
 
 void ARxSamplePlayerController::SubscribeMoveLog()
@@ -46,12 +44,12 @@ void ARxSamplePlayerController::SubscribeMoveLog()
 			[](bool b)
 			{
 				const FString Msg("First Move!");
-				GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Blue, Msg);
+				GEngine->AddOnScreenDebugMessage(-1, 1.0f, FColor::Blue, Msg);
 			},
 			[]()
 			{
 				const FString Msg("Unsubscribed observable for first move.");
-				GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::White, Msg);
+				GEngine->AddOnScreenDebugMessage(-1, 1.0f, FColor::White, Msg);
 			}
 			);
 
@@ -61,7 +59,7 @@ void ARxSamplePlayerController::SubscribeMoveLog()
 			[](bool b)
 			{
 				const FString Msg("Moving...");
-				GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Green, Msg);
+				GEngine->AddOnScreenDebugMessage(-1, 1.0f, FColor::Green, Msg);
 			}
 	);
 
@@ -71,7 +69,7 @@ void ARxSamplePlayerController::SubscribeMoveLog()
 			[](bool b)
 			{
 				const FString Msg("Stop");
-				GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::White, Msg);
+				GEngine->AddOnScreenDebugMessage(-1, 1.0f, FColor::White, Msg);
 			}
 	);
 }
@@ -146,14 +144,20 @@ void ARxSamplePlayerController::SubscribeCameraCommand()
 	CameraMoveStream
 		.subscribe([this](const FVector2D& V)
 			{
-				AddYawInput(V.X);
-				AddPitchInput(V.Y);
-				//GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Yellow, FString::Printf(TEXT("Camera")));
+				if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
+				{
+					FRotator Rotation(V.Y, V.X, 0.f);
+					MyPawn->GetCameraBoom()->AddRelativeRotation(Rotation);
+				}
 			});
 }
 
 void ARxSamplePlayerController::PlayerTick(float DeltaTime)
 {
+	// GameInstance 혹은 모듈 레벨에서 틱을 다룰 수 있는 쪽으로 옮긴다.
+	if (!RunLoop.empty() && RunLoop.peek().when < RunLoop.now())
+		RunLoop.dispatch();
+
 	Super::PlayerTick(DeltaTime);
 
 	if (UPathFollowingComponent* PathFollowingComp = FindComponentByClass<UPathFollowingComponent>())
@@ -168,16 +172,6 @@ void ARxSamplePlayerController::PlayerTick(float DeltaTime)
 	}
 
 	Tick.get_subscriber().on_next(DeltaTime);
-
-	// GameInstance 쪽으로 옮긴다. 좀더 좋은 곳이 있다면 그곳으로...
-	/*
-	while (lifetime.is_subscribed() || !RunLoop.empty()) {
-		while (!RunLoop.empty() && RunLoop.peek().when < RunLoop.now()) {
-			RunLoop.dispatch();
-		}
-	}*/
-	if (!RunLoop.empty() && RunLoop.peek().when < RunLoop.now())
-		RunLoop.dispatch();
 }
 
 void ARxSamplePlayerController::SetupInputComponent()
@@ -191,8 +185,8 @@ void ARxSamplePlayerController::SetupInputComponent()
 	InputComponent->BindAction("MoveCamera", IE_Released, this, &ARxSamplePlayerController::OnCameraMoveReleased);
 	InputComponent->BindAction("Jump", IE_Pressed, this, &ARxSamplePlayerController::Jump);
 	InputComponent->BindAction("Jump", IE_Released, this, &ARxSamplePlayerController::StopJumping);
-	InputComponent->BindAxis("Turn", this, &ThisClass::AddYawInput);
-	InputComponent->BindAxis("LookUp", this, &ThisClass::AddPitchInput);
+	InputComponent->BindAction("ZoomIn", IE_Pressed, this, &ARxSamplePlayerController::ZoomIn);
+	InputComponent->BindAction("ZoomOut", IE_Pressed, this, &ARxSamplePlayerController::ZoomOut);
 
 	// support touch devices 
 	InputComponent->BindTouch(EInputEvent::IE_Pressed, this, &ARxSamplePlayerController::MoveToTouchLocation);
@@ -293,4 +287,22 @@ void ARxSamplePlayerController::Jump()
 void ARxSamplePlayerController::StopJumping()
 {
 	GetCharacter()->StopJumping();
+}
+
+void ARxSamplePlayerController::ZoomIn()
+{
+	if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
+	{
+		float& TargetArmLength = MyPawn->GetCameraBoom()->TargetArmLength;
+		TargetArmLength = FMath::Clamp(TargetArmLength - ZoomUnit, ZoomMin, ZoomMax);
+	}
+}
+
+void ARxSamplePlayerController::ZoomOut()
+{
+	if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
+	{
+		float& TargetArmLength = MyPawn->GetCameraBoom()->TargetArmLength;
+		TargetArmLength = FMath::Clamp(TargetArmLength + ZoomUnit, ZoomMin, ZoomMax);
+	}
 }

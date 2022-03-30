@@ -21,8 +21,11 @@ protected:
 	rxcpp::subjects::subject<bool> Clicked;
 	rxcpp::subjects::subject<float> Tick;
 
-	float WalkSpeed = 200.f;
-	float RunSpeed = 600.f;
+	const float WalkSpeed = 200.f;
+	const float RunSpeed = 600.f;
+	const float ZoomUnit = 100.f;
+	const float ZoomMin = 100.f;
+	const float ZoomMax = 1500.f;
 
 	/** True if the controlled character should navigate to the mouse cursor. */
 	uint32 bMoveToMouseCursor : 1;
@@ -54,6 +57,8 @@ protected:
 	void OnCameraMoveReleased();
 	void Jump();
 	void StopJumping();
+	void ZoomIn();
+	void ZoomOut();
 
 	void SubscribeMoveLog();
 	void SubscribeMoveCommand();
