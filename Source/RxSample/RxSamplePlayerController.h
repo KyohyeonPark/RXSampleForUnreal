@@ -1,11 +1,13 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
-
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/SubclassOf.h"
 #include "GameFramework/PlayerController.h"
 #include "Rx.h"
 #include "RxSamplePlayerController.generated.h"
+
+/** Forward declaration to improve compiling times */
+class UNiagaraSystem;
 
 UCLASS()
 class ARxSamplePlayerController : public APlayerController
@@ -14,6 +16,14 @@ class ARxSamplePlayerController : public APlayerController
 
 public:
 	ARxSamplePlayerController();
+
+	/** Time Threshold to know if it was a short press */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
+	float ShortPressThreshold;
+
+	/** FX Class that we will spawn when clicking */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
+	UNiagaraSystem* FXCursor;
 
 protected:
 	bool bMoving = false;
@@ -25,11 +35,7 @@ protected:
 	const float RunSpeed = 600.f;
 	const float ZoomUnit = 100.f;
 	const float ZoomMin = 100.f;
-	const float ZoomMax = 1500.f;
-
-	/** True if the controlled character should navigate to the mouse cursor. */
-	uint32 bMoveToMouseCursor : 1;
-	uint32 bCameraMove : 1;
+	const float ZoomMax = 3000.f;
 
 	// Begin PlayerController interface
 	virtual void BeginPlay() override;
@@ -38,21 +44,14 @@ protected:
 	virtual void SetupInputComponent() override;
 	// End PlayerController interface
 
-	/** Resets HMD orientation in VR. */
-	void OnResetVR();
-
 	/** Navigate player to the current mouse cursor location. */
 	void MoveToMouseCursor();
-
-	/** Navigate player to the current touch location. */
-	void MoveToTouchLocation(const ETouchIndex::Type FingerIndex, const FVector Location);
-	
-	/** Navigate player to the given world location. */
-	void SetNewMoveDestination(const FVector DestLocation);
 
 	/** Input handlers for SetDestination action. */
 	void OnSetDestinationPressed();
 	void OnSetDestinationReleased();
+	void OnTouchPressed(const ETouchIndex::Type FingerIndex, const FVector Location);
+	void OnTouchReleased(const ETouchIndex::Type FingerIndex, const FVector Location);
 	void OnCameraMovePressed();
 	void OnCameraMoveReleased();
 	void Jump();
@@ -63,6 +62,12 @@ protected:
 	void SubscribeMoveLog();
 	void SubscribeMoveCommand();
 	void SubscribeCameraCommand();
+
+private:
+	bool bInputPressed; // Input is bring pressed
+	bool bIsTouch; // Is it a touch device
+	bool bCameraMove;
+	float FollowTime; // For how long it has been pressed
 };
 
 

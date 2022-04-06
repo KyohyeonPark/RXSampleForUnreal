@@ -1,19 +1,21 @@
 ﻿#include "RxSamplePlayerController.h"
+#include "GameFramework/Pawn.h"
 #include "Blueprint/AIBlueprintHelperLibrary.h"
-#include "Runtime/Engine/Classes/Components/DecalComponent.h"
-#include "HeadMountedDisplayFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "NiagaraFunctionLibrary.h"
 #include "RxSampleCharacter.h"
+#include "Engine/World.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 
-
 rxcpp::schedulers::run_loop RunLoop;
+
 
 ARxSamplePlayerController::ARxSamplePlayerController()
 {
 	bShowMouseCursor = true;
-	DefaultMouseCursor = EMouseCursor::Crosshairs;
+	DefaultMouseCursor = EMouseCursor::Default;
 }
 
 void ARxSamplePlayerController::BeginPlay()
@@ -31,6 +33,177 @@ void ARxSamplePlayerController::BeginPlay()
 
 void ARxSamplePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+}
+
+void ARxSamplePlayerController::PlayerTick(float DeltaTime)
+{
+	// GameInstance 혹은 모듈 레벨에서 틱을 다룰 수 있는 쪽으로 옮긴다.
+	if (!RunLoop.empty() && RunLoop.peek().when < RunLoop.now())
+		RunLoop.dispatch();
+
+	Super::PlayerTick(DeltaTime);
+/*
+	if(bInputPressed)
+	{
+		FollowTime += DeltaTime;
+
+		// Look for the touch location
+		FVector HitLocation = FVector::ZeroVector;
+		FHitResult Hit;
+		if(bIsTouch)
+		{
+			GetHitResultUnderFinger(ETouchIndex::Touch1, ECC_Visibility, true, Hit);
+		}
+		else
+		{
+			GetHitResultUnderCursor(ECC_Visibility, true, Hit);
+		}
+		HitLocation = Hit.Location;
+
+		// Direct the Pawn towards that location
+		APawn* const MyPawn = GetPawn();
+		if(MyPawn)
+		{
+			FVector WorldDirection = (HitLocation - MyPawn->GetActorLocation()).GetSafeNormal();
+			MyPawn->AddMovementInput(WorldDirection, 1.f, false);
+		}
+	}
+	else
+	{
+		FollowTime = 0.f;
+	}
+*/
+	if (UPathFollowingComponent* PathFollowingComp = FindComponentByClass<UPathFollowingComponent>())
+	{
+		bool bAlreadyAtGoal = PathFollowingComp->DidMoveReachGoal();
+		if (bMoving != !bAlreadyAtGoal)
+		{
+			bMoving = !bAlreadyAtGoal;
+			Moving.get_subscriber().on_next(bMoving);
+			GetCharacter()->GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+		}
+	}
+
+	Tick.get_subscriber().on_next(DeltaTime);
+}
+
+void ARxSamplePlayerController::SetupInputComponent()
+{
+	// set up gameplay key bindings
+	Super::SetupInputComponent();
+
+	InputComponent->BindAction("SetDestination", IE_Pressed, this, &ARxSamplePlayerController::OnSetDestinationPressed);
+	InputComponent->BindAction("SetDestination", IE_Released, this, &ARxSamplePlayerController::OnSetDestinationReleased);
+	InputComponent->BindAction("MoveCamera", IE_Pressed, this, &ARxSamplePlayerController::OnCameraMovePressed);
+	InputComponent->BindAction("MoveCamera", IE_Released, this, &ARxSamplePlayerController::OnCameraMoveReleased);
+	InputComponent->BindAction("Jump", IE_Pressed, this, &ARxSamplePlayerController::Jump);
+	InputComponent->BindAction("Jump", IE_Released, this, &ARxSamplePlayerController::StopJumping);
+	InputComponent->BindAction("ZoomIn", IE_Pressed, this, &ARxSamplePlayerController::ZoomIn);
+	InputComponent->BindAction("ZoomOut", IE_Pressed, this, &ARxSamplePlayerController::ZoomOut);
+
+	// support touch devices 
+	InputComponent->BindTouch(EInputEvent::IE_Pressed, this, &ARxSamplePlayerController::OnTouchPressed);
+	InputComponent->BindTouch(EInputEvent::IE_Released, this, &ARxSamplePlayerController::OnTouchReleased);
+
+}
+
+void ARxSamplePlayerController::MoveToMouseCursor()
+{
+	// If it was a short press
+//	if (FollowTime <= ShortPressThreshold)
+	{
+		// We look for the location in the world where the player has pressed the input
+		FVector HitLocation = FVector::ZeroVector;
+		FHitResult Hit;
+		GetHitResultUnderCursor(ECC_Visibility, true, Hit);
+		HitLocation = Hit.Location;
+
+		// We move there and spawn some particles
+		UAIBlueprintHelperLibrary::SimpleMoveToLocation(this, HitLocation);
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, FXCursor, HitLocation, FRotator::ZeroRotator, FVector(1.f, 1.f, 1.f), true, true, ENCPoolMethod::None, true);
+	}
+}
+
+void ARxSamplePlayerController::OnSetDestinationPressed()
+{
+	// We flag that the input is being pressed
+	bInputPressed = true;
+	// Just in case the character was moving because of a previous short press we stop it
+	StopMovement();
+
+	Clicked.get_subscriber().on_next(true);
+}
+
+void ARxSamplePlayerController::OnSetDestinationReleased()
+{
+	// Player is no longer pressing the input
+	bInputPressed = false;
+
+	// If it was a short press
+	if(FollowTime <= ShortPressThreshold)
+	{
+		// We look for the location in the world where the player has pressed the input
+		FVector HitLocation = FVector::ZeroVector;
+		FHitResult Hit;
+		GetHitResultUnderCursor(ECC_Visibility, true, Hit);
+		HitLocation = Hit.Location;
+
+		// We move there and spawn some particles
+		UAIBlueprintHelperLibrary::SimpleMoveToLocation(this, HitLocation);
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, FXCursor, HitLocation, FRotator::ZeroRotator, FVector(1.f, 1.f, 1.f), true, true, ENCPoolMethod::None, true);
+	}
+
+	Clicked.get_subscriber().on_next(false);
+}
+
+void ARxSamplePlayerController::OnTouchPressed(const ETouchIndex::Type FingerIndex, const FVector Location)
+{
+	bIsTouch = true;
+	OnSetDestinationPressed();
+}
+
+void ARxSamplePlayerController::OnTouchReleased(const ETouchIndex::Type FingerIndex, const FVector Location)
+{
+	bIsTouch = false;
+	OnSetDestinationReleased();
+}
+
+void ARxSamplePlayerController::OnCameraMovePressed()
+{
+	bCameraMove = true;
+}
+
+void ARxSamplePlayerController::OnCameraMoveReleased()
+{
+	bCameraMove = false;
+}
+
+void ARxSamplePlayerController::Jump()
+{
+	GetCharacter()->Jump();
+}
+
+void ARxSamplePlayerController::StopJumping()
+{
+	GetCharacter()->StopJumping();
+}
+
+void ARxSamplePlayerController::ZoomIn()
+{
+	if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
+	{
+		float& TargetArmLength = MyPawn->GetCameraBoom()->TargetArmLength;
+		TargetArmLength = FMath::Clamp(TargetArmLength - ZoomUnit, ZoomMin, ZoomMax);
+	}
+}
+
+void ARxSamplePlayerController::ZoomOut()
+{
+	if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
+	{
+		float& TargetArmLength = MyPawn->GetCameraBoom()->TargetArmLength;
+		TargetArmLength = FMath::Clamp(TargetArmLength + ZoomUnit, ZoomMin, ZoomMax);
+	}
 }
 
 void ARxSamplePlayerController::SubscribeMoveLog()
@@ -85,17 +258,17 @@ void ARxSamplePlayerController::SubscribeMoveCommand()
 	//auto WorkThread = rxcpp::synchronize_new_thread();
 
 	auto ClickStream = Tick.get_observable()
-		.map([this](float DeltaTime) { return bMoveToMouseCursor; });
+		.map([this](float DeltaTime) { return bInputPressed; });
 
 	auto FlushStream = ClickStream
-		.filter([](uint32 bMove) { return bMove == 1; })
+		.filter([](bool bPressed) { return bPressed == true; })
 		.throttle(DoubleClickPeriod);
 
 	auto WindowStream = ClickStream
 		.distinct_until_changed()
 		.window_toggle(
 			FlushStream,
-			[=](uint32 bMove) {
+			[=](bool bPressed) {
 				return FlushStream
 					.delay(DoubleClickPeriod);
 			}
@@ -103,21 +276,21 @@ void ARxSamplePlayerController::SubscribeMoveCommand()
 
 	WindowStream
 		.observe_on(MainThread)
-		.subscribe([MainThread, this](rxcpp::observable<uint32> ClickWindow)
-		{
-			MoveToMouseCursor();
+		.subscribe([MainThread, this](rxcpp::observable<bool> ClickWindow)
+			{
+				MoveToMouseCursor();
 
-			ClickWindow
-				.filter([](uint32 bMove) { return bMove == 1; })
-				.take(2)
-				.observe_on(MainThread)
-				.subscribe([this](uint32 bMove)
-					{
-						GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Yellow, FString::Printf(TEXT("Double clicked!")));
+				ClickWindow
+					.filter([](bool bPressed) { return bPressed == true; })
+					.take(2)
+					.observe_on(MainThread)
+					.subscribe([this](bool bPressed)
+						{
+							GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Yellow, FString::Printf(TEXT("Double clicked!")));
 
-						GetCharacter()->GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
-					});
-		});
+							GetCharacter()->GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
+						});
+			});
 }
 
 void ARxSamplePlayerController::SubscribeCameraCommand()
@@ -140,169 +313,14 @@ void ARxSamplePlayerController::SubscribeCameraCommand()
 			}
 		)
 		.take_until(TriggerEnd)
-		.repeat();
-	CameraMoveStream
-		.subscribe([this](const FVector2D& V)
-			{
-				if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
-				{
-					FRotator Rotation(V.Y, V.X, 0.f);
-					MyPawn->GetCameraBoom()->AddRelativeRotation(Rotation);
-				}
-			});
-}
-
-void ARxSamplePlayerController::PlayerTick(float DeltaTime)
-{
-	// GameInstance 혹은 모듈 레벨에서 틱을 다룰 수 있는 쪽으로 옮긴다.
-	if (!RunLoop.empty() && RunLoop.peek().when < RunLoop.now())
-		RunLoop.dispatch();
-
-	Super::PlayerTick(DeltaTime);
-
-	if (UPathFollowingComponent* PathFollowingComp = FindComponentByClass<UPathFollowingComponent>())
-	{
-		bool bAlreadyAtGoal = PathFollowingComp->DidMoveReachGoal();
-		if (bMoving != !bAlreadyAtGoal)
-		{
-			bMoving = !bAlreadyAtGoal;
-			Moving.get_subscriber().on_next(bMoving);
-			GetCharacter()->GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
-		}
-	}
-
-	Tick.get_subscriber().on_next(DeltaTime);
-}
-
-void ARxSamplePlayerController::SetupInputComponent()
-{
-	// set up gameplay key bindings
-	Super::SetupInputComponent();
-
-	InputComponent->BindAction("SetDestination", IE_Pressed, this, &ARxSamplePlayerController::OnSetDestinationPressed);
-	InputComponent->BindAction("SetDestination", IE_Released, this, &ARxSamplePlayerController::OnSetDestinationReleased);
-	InputComponent->BindAction("MoveCamera", IE_Pressed, this, &ARxSamplePlayerController::OnCameraMovePressed);
-	InputComponent->BindAction("MoveCamera", IE_Released, this, &ARxSamplePlayerController::OnCameraMoveReleased);
-	InputComponent->BindAction("Jump", IE_Pressed, this, &ARxSamplePlayerController::Jump);
-	InputComponent->BindAction("Jump", IE_Released, this, &ARxSamplePlayerController::StopJumping);
-	InputComponent->BindAction("ZoomIn", IE_Pressed, this, &ARxSamplePlayerController::ZoomIn);
-	InputComponent->BindAction("ZoomOut", IE_Pressed, this, &ARxSamplePlayerController::ZoomOut);
-
-	// support touch devices 
-	InputComponent->BindTouch(EInputEvent::IE_Pressed, this, &ARxSamplePlayerController::MoveToTouchLocation);
-	InputComponent->BindTouch(EInputEvent::IE_Repeat, this, &ARxSamplePlayerController::MoveToTouchLocation);
-
-	InputComponent->BindAction("ResetVR", IE_Pressed, this, &ARxSamplePlayerController::OnResetVR);
-}
-
-void ARxSamplePlayerController::OnResetVR()
-{
-	UHeadMountedDisplayFunctionLibrary::ResetOrientationAndPosition();
-}
-
-void ARxSamplePlayerController::MoveToMouseCursor()
-{
-	if (UHeadMountedDisplayFunctionLibrary::IsHeadMountedDisplayEnabled())
-	{
-		if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
-		{
-			if (MyPawn->GetCursorToWorld())
-			{
-				UAIBlueprintHelperLibrary::SimpleMoveToLocation(this, MyPawn->GetCursorToWorld()->GetComponentLocation());
-			}
-		}
-	}
-	else
-	{
-		// Trace to see what is under the mouse cursor
-		FHitResult Hit;
-		GetHitResultUnderCursor(ECC_Visibility, false, Hit);
-
-		if (Hit.bBlockingHit)
-		{
-			// We hit something, move there
-			SetNewMoveDestination(Hit.ImpactPoint);
-		}
-	}
-}
-
-void ARxSamplePlayerController::MoveToTouchLocation(const ETouchIndex::Type FingerIndex, const FVector Location)
-{
-	FVector2D ScreenSpaceLocation(Location);
-
-	// Trace to see what is under the touch location
-	FHitResult HitResult;
-	GetHitResultAtScreenPosition(ScreenSpaceLocation, CurrentClickTraceChannel, true, HitResult);
-	if (HitResult.bBlockingHit)
-	{
-		// We hit something, move there
-		SetNewMoveDestination(HitResult.ImpactPoint);
-	}
-}
-
-void ARxSamplePlayerController::SetNewMoveDestination(const FVector DestLocation)
-{
-	APawn* const MyPawn = GetPawn();
-	if (MyPawn)
-	{
-		float const Distance = FVector::Dist(DestLocation, MyPawn->GetActorLocation());
-
-		// We need to issue move command only if far enough in order for walk animation to play correctly
-		if ((Distance > 120.0f))
-		{
-			UAIBlueprintHelperLibrary::SimpleMoveToLocation(this, DestLocation);
-		}
-	}
-}
-
-void ARxSamplePlayerController::OnSetDestinationPressed()
-{
-	// set flag to keep updating destination until released
-	bMoveToMouseCursor = true;
-	Clicked.get_subscriber().on_next(true);
-}
-
-void ARxSamplePlayerController::OnSetDestinationReleased()
-{
-	// clear flag to indicate we should stop updating the destination
-	bMoveToMouseCursor = false;
-	Clicked.get_subscriber().on_next(false);
-}
-
-void ARxSamplePlayerController::OnCameraMovePressed()
-{
-	bCameraMove = true;
-}
-
-void ARxSamplePlayerController::OnCameraMoveReleased()
-{
-	bCameraMove = false;
-}
-
-void ARxSamplePlayerController::Jump()
-{
-	GetCharacter()->Jump();
-}
-
-void ARxSamplePlayerController::StopJumping()
-{
-	GetCharacter()->StopJumping();
-}
-
-void ARxSamplePlayerController::ZoomIn()
-{
-	if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
-	{
-		float& TargetArmLength = MyPawn->GetCameraBoom()->TargetArmLength;
-		TargetArmLength = FMath::Clamp(TargetArmLength - ZoomUnit, ZoomMin, ZoomMax);
-	}
-}
-
-void ARxSamplePlayerController::ZoomOut()
-{
-	if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
-	{
-		float& TargetArmLength = MyPawn->GetCameraBoom()->TargetArmLength;
-		TargetArmLength = FMath::Clamp(TargetArmLength + ZoomUnit, ZoomMin, ZoomMax);
-	}
+				.repeat();
+			CameraMoveStream
+				.subscribe([this](const FVector2D& V)
+					{
+						if (ARxSampleCharacter* MyPawn = Cast<ARxSampleCharacter>(GetPawn()))
+						{
+							FRotator Rotation(V.Y, V.X, 0.f);
+							MyPawn->GetCameraBoom()->AddRelativeRotation(Rotation);
+						}
+					});
 }
