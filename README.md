@@ -1,4 +1,4 @@
-# RxSampleForUnreal
+# RxSample for Unreal Engine
 <p align="center">
   <img src="https://user-images.githubusercontent.com/27719886/162159998-17ff40c5-66ac-475d-a051-84121aa1ad67.png">
 </p>
