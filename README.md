@@ -1,5 +1,7 @@
 # RxSampleForUnreal
-![UE_RxCpp_Logo](https://user-images.githubusercontent.com/27719886/162159998-17ff40c5-66ac-475d-a051-84121aa1ad67.png)
+<p align="center">
+  <img src="https://user-images.githubusercontent.com/27719886/162159998-17ff40c5-66ac-475d-a051-84121aa1ad67.png">
+</p>
 Welcome to the RxSample for Unreal Engine source code!
 
 ## Introduction
